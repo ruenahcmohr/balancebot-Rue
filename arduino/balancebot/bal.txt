@@ -1,0 +1,11 @@
+        mpu.dmpGetQuaternion(&q, fifoBuffer); //get value for q
+        mpu.dmpGetGravity(&gravity, &q); //get value for gravity
+        mpu.dmpGetYawPitchRoll(ypr, &q, &gravity); //get value for ypr
+  
+        input = ypr[1] * 180.0/M_PI + 180.0;
+        
+        
+        to
+        
+        mpu.dmpGetQuaternion(&q, fifoBuffer);
+input = asin(-2.0f * (q.x*q.z - q.w*q.y)) * RAD_TO_DEG;

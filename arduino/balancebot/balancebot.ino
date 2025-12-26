@@ -1,17 +1,3 @@
-/*
-
-  balancing robot modified internet code (oh so lazy)
-    control from i2c mpu6050 via arduino i2c ()
-    PWM output for motors on arduino 3 and 11, which is timer 2A/B
-      using "tompwm" where side A is inverted from side B, 50% is "stop"
-
-  "I promise to weed out the garbage and fit it all later"
-  
-  Rue.
-
-*/
-
-
 #include "I2Cdev.h"
 #include <PID_v1.h> //From https://github.com/br3ttb/Arduino-PID-Library/blob/master/PID_v1.h
 #include "MPU6050_6Axis_MotionApps20.h" //https://github.com/jrowberg/i2cdevlib/tree/master/Arduino/MPU6050
@@ -32,12 +18,12 @@ VectorFloat gravity;    // [x, y, z]            gravity vector
 float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 
 /*********Tune these 4 values for your BOT*********/
-double setpoint= 169.3; // 169.5; //set the value when the bot is perpendicular to ground using serial monitor. 
+double setpoint = 13; //17;  //set the value when the bot is perpendicular to ground using serial monitor. 
 
 //Read the project documentation on circuitdigest.com to learn how to set these values
-double Kp = 32; //40; //15; // Set this first
-double Kd = 0.6; //0.8; Set this secound
-double Ki = 0; //120; // Finally set this 
+double Kp = 16; //16; //40; //15; // Set this first
+double Kd = 0.3; //0.6; Set this secound
+double Ki = 64; //120; // Finally set this 
 /******End of values setting*********/
 
 float av;
@@ -136,20 +122,18 @@ void loop() {
     
     // wait for MPU interrupt or extra packet(s) available
     while (!mpuInterrupt && (fifoCount < packetSize))    {
-   // while ((fifoCount < packetSize))    { // damnit why is that interrupt needed? GIVE ME THE DATA.
+   // while ((fifoCount < packetSize))    {
     
         //no mpu data - performing PID calculations and output to motors     
         pid.Compute();
   
-      // DO NOT SLOW DOWN THE LOOP WITH STUPID SLOW SERIAL DATA!!!
         //Print the value of Input and Output on serial monitor to check how it is working.
       //  Serial.print(input); Serial.print(", "); Serial.println(output);
-       // av = (av+input)/2.0; // never average a signal like this :]
-       // Serial.println(input);
+       // av = (av+input)/2.0;
+      // Serial.println(input);
         
-      //  if ((input > 150) && (input < 200)){//If the Bot is falling // WTF? - Rue.
-      
-      if ((input<(setpoint+30)) &&( input > (setpoint-30))){ // if you fell over +- 30 degrees GIVE UP!!!!!
+      //  if ((input > 150) && (input < 200)){//If the Bot is falling 
+      if ((input<(setpoint+30)) &&( input > (setpoint-30))){
           SetSpeed(); //Rotate the wheels backward 
       } else {
           Stop(); // you fell over.
@@ -183,10 +167,14 @@ void loop() {
   
         fifoCount -= packetSize;
         mpu.dmpGetQuaternion(&q, fifoBuffer); //get value for q
-        mpu.dmpGetGravity(&gravity, &q); //get value for gravity
-        mpu.dmpGetYawPitchRoll(ypr, &q, &gravity); //get value for ypr
-  
-        input = ypr[1] * 180/M_PI + 180;
+        
+       // mpu.dmpGetGravity(&gravity, &q); //get value for gravity
+       // mpu.dmpGetYawPitchRoll(ypr, &q, &gravity); //get value for ypr  
+       // input = ypr[1] * 180/M_PI + 180;
+        
+       input = asin(-2.0f * (q.x*q.z - q.w*q.y)) * RAD_TO_DEG;
+
+       
    }
    
 }
@@ -204,8 +192,3 @@ void Stop() {  //Code to rotate the wheel forward
     analogWrite(11,128);
    // Serial.print("S "); //Debugging information 
 }
-
-
-
-
-

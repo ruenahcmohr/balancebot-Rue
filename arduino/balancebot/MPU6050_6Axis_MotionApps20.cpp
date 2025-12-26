@@ -98,7 +98,7 @@ THE SOFTWARE.
 // after moving string constants to flash memory storage using the F()
 // compiler macro (Arduino IDE 1.0+ required).
 
-//#define DEBUG
+#define DEBUG
 #ifdef DEBUG
     #define DEBUG_PRINT(x) Serial.print(x)
     #define DEBUG_PRINTF(x, y) Serial.print(x, y)
@@ -320,8 +320,9 @@ uint8_t MPU6050_6Axis_MotionApps20::dmpInitialize() {
 	DEBUG_PRINTLN(F("Setting external frame sync to TEMP_OUT_L[0]..."));
 	setExternalFrameSync(MPU6050_EXT_SYNC_TEMP_OUT_L);
 
-	DEBUG_PRINTLN(F("Setting DLPF bandwidth to 42Hz..."));
-	setDLPFMode(MPU6050_DLPF_BW_42);
+	DEBUG_PRINTLN(F("Setting DLPF bandwidth to 98Hz..."));
+	//setDLPFMode(MPU6050_DLPF_BW_42);
+  setDLPFMode(MPU6050_DLPF_BW_98);
 
 	DEBUG_PRINTLN(F("Setting gyro sensitivity to +/- 2000 deg/sec..."));
 	setFullScaleGyroRange(MPU6050_GYRO_FS_2000);
