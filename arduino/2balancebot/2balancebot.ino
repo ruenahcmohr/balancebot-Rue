@@ -1,4 +1,12 @@
-#include "I2Cdev.h"
+/*
+ * I'm running this on an atmega328P at 16MHz
+ *  The sample rate is about 100Hz 
+ *  The i2c clock rate is 1MHz
+ *  PWM is 62.5kHz (check your motor drivers are ok with this)
+ *  
+ */
+
+#include <Wire.h>
 #include <PID_v1.h> //From https://github.com/br3ttb/Arduino-PID-Library/blob/master/PID_v1.h
 #include "MPU6050_6Axis_MotionApps20.h" //https://github.com/jrowberg/i2cdevlib/tree/master/Arduino/MPU6050
 
@@ -14,8 +22,6 @@ uint16_t fifoCount;     // count of all bytes currently in FIFO
 uint8_t fifoBuffer[64]; // FIFO storage buffer
 // orientation/motion vars
 Quaternion q;           // [w, x, y, z]         quaternion container
-VectorFloat gravity;    // [x, y, z]            gravity vector
-float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 
 /*********Tune these 4 values for your BOT*********/
 double setpoint = 13; //17;  //set the value when the bot is perpendicular to ground using serial monitor. 
@@ -31,13 +37,6 @@ float av;
 double input, output;
 
 PID pid(&input, &output, &setpoint, Kp, Ki, Kd, DIRECT);
-
-volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
-
-void dmpDataReady() {
-    mpuInterrupt = true;
-}
-
 
 
 // arduino pins 3 and 11
@@ -89,19 +88,15 @@ void setup() {
         // turn on the DMP, now that it's ready
         Serial.println(F("Enabling DMP..."));
         mpu.setDMPEnabled(true);
-        // enable Arduino interrupt detection
-        Serial.println(F("Enabling interrupt detection (Arduino external interrupt 0)..."));
-        attachInterrupt(0, dmpDataReady, RISING);
-        mpuIntStatus = mpu.getIntStatus();
-        // set our DMP Ready flag so the main loop() function knows it's okay to use it
-        Serial.println(F("DMP ready! Waiting for first interrupt..."));
         dmpReady = true;
-        // get expected DMP packet size for later comparison
+        // get DMP packet size 
         packetSize = mpu.dmpGetFIFOPacketSize();
         //setup PID
         pid.SetMode(AUTOMATIC);
-        pid.SetSampleTime(8);
-        pid.SetOutputLimits(-128, 127);
+        pid.SetSampleTime(8); // data from the imu only comes in at 98Hz anyhow.
+        // and this is still done all wrong, the samples should be processed immediatly.
+        // but they aren't synchronized (yet)
+        pid.SetOutputLimits(-128, 127); // this is the 8 bit range of my motor drivers 127/128 is stop.
   
     }    else    {
         // ERROR!
@@ -111,6 +106,7 @@ void setup() {
         Serial.print(F("DMP Initialization failed (code "));
         Serial.print(devStatus);
         Serial.println(F(")"));
+        Serial.println(F("Is the i2c scope probe set to 10x?"));
     }        
 
 }
@@ -121,59 +117,37 @@ void loop() {
     if (!dmpReady) return;
     
     // wait for MPU interrupt or extra packet(s) available
-    while (!mpuInterrupt && (fifoCount < packetSize))    {
-   // while ((fifoCount < packetSize))    {
-    
-        //no mpu data - performing PID calculations and output to motors     
-        pid.Compute();
-  
-        //Print the value of Input and Output on serial monitor to check how it is working.
-      //  Serial.print(input); Serial.print(", "); Serial.println(output);
-       // av = (av+input)/2.0;
-      // Serial.println(input);
-        
-      //  if ((input > 150) && (input < 200)){//If the Bot is falling 
-      if ((input<(setpoint+30)) &&( input > (setpoint-30))){
-          SetSpeed(); //Rotate the wheels backward 
-      } else {
-          Stop(); // you fell over.
-      }
+    while (!(mpuIntStatus = mpu.getIntStatus()))    {  // this is a lot more i2c traffic but *I dont think* it matters    
+      //no mpu data - call PID update, at some point it will.
+      // (PID set for 8ms, our updates are 10.2ms)
+      pid.Compute() ;     
     }
     
-    // reset interrupt flag and get INT_STATUS byte
-    mpuInterrupt = false;
-    mpuIntStatus = mpu.getIntStatus();
-    
-    // get current FIFO count
-    fifoCount = mpu.getFIFOCount();
-    
     // check for overflow (this should never happen unless our code is too inefficient)
-    if ((mpuIntStatus & 0x10) || fifoCount == 1024)    {
+    if (mpuIntStatus & (1<<MPU6050_INTERRUPT_FIFO_OFLOW_BIT))    {
         // reset so we can continue cleanly
         mpu.resetFIFO();
         Serial.println(F("FIFO overflow!"));
   
     // otherwise, check for DMP data ready interrupt (this should happen frequently)
-    }  else if (mpuIntStatus & 0x02)   {
-    
-        // wait for correct available data length, should be a VERY short wait
-        while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
-  
-        // read a packet from FIFO
-        mpu.getFIFOBytes(fifoBuffer, packetSize);
-  
-        // track FIFO count here in case there is > 1 packet available
-        // (this lets us immediately read more without waiting for an interrupt)
-  
-        fifoCount -= packetSize;
-        mpu.dmpGetQuaternion(&q, fifoBuffer); //get value for q
-        
-       // mpu.dmpGetGravity(&gravity, &q); //get value for gravity
-       // mpu.dmpGetYawPitchRoll(ypr, &q, &gravity); //get value for ypr  
-       // input = ypr[1] * 180.0/M_PI + 180.0;
-        
-       input = asin(-2.0f * (q.x*q.z - q.w*q.y)) * RAD_TO_DEG;
+    }  else if (mpuIntStatus & (1<<MPU6050_INTERRUPT_DMP_INT_BIT))   {      
+       
+       // wait for correct available data length, should be a VERY short wait
+       while ((fifoCount = mpu.getFIFOCount()) < packetSize);
 
+       // read a packet from FIFO
+       mpu.getFIFOBytes(fifoBuffer, packetSize);
+       mpu.resetFIFO(); // we should not be losing samples, so make sure its reset after each transaction.
+
+       mpu.dmpGetQuaternion(&q, fifoBuffer); //get value for q             
+          
+       input = asin(-2.0f * (q.x*q.z - q.w*q.y)) * RAD_TO_DEG; // less maths is better!
+
+       if ((input<(setpoint+20)) &&( input > (setpoint-20))){ // give up if you fell over!
+         SetSpeed(); // update motor speeds
+       } else {
+         Stop(); // you dun fell over.
+       }   
        
    }
    
